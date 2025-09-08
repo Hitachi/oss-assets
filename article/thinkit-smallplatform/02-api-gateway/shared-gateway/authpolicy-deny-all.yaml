@@ -1,0 +1,29 @@
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: shared-gateway-auth-policy-deny-all
+  namespace: shared-gateway
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: shared-gateway
+  defaults:
+    strategy: atomic
+    rules:
+      authorization:
+        deny-all:
+          opa:
+            rego: |
+              allow = false
+      response:
+        unauthorized:
+          headers:
+            "content-type":
+              value: application/json
+          body:
+            value: |
+              {
+                "error": "Forbidden",
+                "message": "403 Forbidden: All traffic is denied by the AuthPolicy configuration for the Gateway."
+              }

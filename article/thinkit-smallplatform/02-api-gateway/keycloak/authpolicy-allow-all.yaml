@@ -1,0 +1,15 @@
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: keycloak-authpolicy-allow-all
+  namespace: keycloak
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: keycloak-route
+  defaults:
+    rules:
+      authentication:
+        "anonymous":
+          anonymous: {}
