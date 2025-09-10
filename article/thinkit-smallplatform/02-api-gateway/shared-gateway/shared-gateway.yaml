@@ -1,0 +1,34 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: shared-gateway
+  namespace: shared-gateway
+spec:
+  gatewayClassName: envoy-gateway
+  listeners:
+    # Keycloak用リスナー
+    - name: keycloak
+      protocol: HTTP
+      port: 80
+      hostname: keycloak.172.32.4.127.nip.io
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: keycloak
+        kinds:
+          - kind: HTTPRoute
+    # echo API用リスナー (テナント)
+    - name: echo
+      protocol: HTTP
+      port: 80
+      hostname: "echo.172.32.4.127.nip.io"
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: echo
+        kinds:
+          - kind: HTTPRoute
