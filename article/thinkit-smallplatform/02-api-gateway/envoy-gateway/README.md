@@ -16,5 +16,5 @@ helm upgrade --install eg oci://docker.io/envoyproxy/gateway-helm \
 Envoy GatewayのGatewayClassをデプロイします。
 
 ```sh
-kubectl apply -f gatewayclass.yaml
+kubectl apply -f gateway-class.yaml
 ```
