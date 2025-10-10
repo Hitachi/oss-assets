@@ -5,7 +5,7 @@
 cert-managerはKuadrant Operatorのインストールに必要なコンポーネントです。以下のコマンドでcert-managerをインストールします。
 
 ```bash
-helm install \
+helm upgrade --install \
 cert-manager cert-manager \
 --repo https://charts.jetstack.io \
 --namespace cert-manager \
