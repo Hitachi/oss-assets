@@ -2,11 +2,16 @@
 
 ## Keycloakデプロイ
 
+Namespace作成
+
 ```sh
-helm upgrade --install keycloak oci://registry-1.docker.io/bitnamicharts/keycloak \
---set auth.adminUser=admin \
---set auth.adminPassword=admin \
--n keycloak --create-namespace
+kubectl create namespace keycloak
+```
+
+Keycloakデプロイ
+
+```sh
+kubectl apply -f keycloak.yaml
 ```
 
 ## HTTPRouteデプロイ
