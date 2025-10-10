@@ -70,8 +70,6 @@ spec:
     spec:
       containers:
       - env:
-        - name: PGDATA
-          value: /var/lib/postgresql/17/docker
         - name: POSTGRES_USER
           value: keycloak
         - name: POSTGRES_PASSWORD
@@ -86,7 +84,7 @@ spec:
         - containerPort: 5432
           name: postgres
         volumeMounts:
-        - mountPath: /var/lib/postgresql
+        - mountPath: /var/lib/postgresql/data
           name: postgres-data
       volumes:
       - name: postgres-data
