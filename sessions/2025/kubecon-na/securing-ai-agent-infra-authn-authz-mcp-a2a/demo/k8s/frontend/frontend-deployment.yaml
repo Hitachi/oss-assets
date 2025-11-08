@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      # Envoy sidecar
+      - name: envoy
+        image: envoyproxy/envoy:v1.25.1
+        imagePullPolicy: IfNotPresent
+        args: ["-l", "debug", "--local-address-ip-version", "v4", "-c", "/run/envoy/envoy.yaml", "--base-id", "1"]
+        volumeMounts:
+        - name: envoy-config
+          mountPath: "/run/envoy"
+          readOnly: true
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
+
+      # Auth helper for UMA decision (Inbound)
+      - name: auth-helper-decision
+        image: envoy-jwt-auth-helper:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/opt/helper/envoy-jwt-auth-helper"]
+        args: ["-config", "/run/auth-helper/config/envoy-jwt-auth-helper1.conf"]
+        ports:
+        - containerPort: 9021
+        volumeMounts:
+        - name: auth-helper-config1
+          mountPath: "/run/auth-helper/config"
+          readOnly: true
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
+
+      # Auth helper for Token Exchange (Outbound)
+      - name: auth-helper
+        image: envoy-jwt-auth-helper:latest
+        imagePullPolicy: IfNotPresent
+        command: ["/opt/helper/envoy-jwt-auth-helper"]
+        args: ["-config", "/run/auth-helper/config/envoy-jwt-auth-helper2.conf"]
+        ports:
+        - containerPort: 9011
+        volumeMounts:
+        - name: auth-helper-config2
+          mountPath: "/run/auth-helper/config"
+          readOnly: true
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
+
+      # Frontend application
+      - name: frontend
+        image: nginx
+        ports:
+        - containerPort: 3000
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d
+
+      volumes:
+      - name: envoy-config
+        configMap:
+          name: frontend-envoy
+      - name: spire-agent-socket
+        hostPath:
+          path: /run/spire/sockets
+          type: DirectoryOrCreate
+      - name: auth-helper-config1
+        configMap:
+          name: fe-envoy-jwt-auth-helper-config1
+      - name: auth-helper-config2
+        configMap:
+          name: fe-envoy-jwt-auth-helper-config2
+      - name: nginx-config
+        configMap:
+          name: nginx-config
+          items:
+          - key: proxy.conf
+            path: proxy.conf
+            mode: 0644

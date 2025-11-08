@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  labels:
+    app: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      hostPID: true
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+      - name: envoy
+        image: envoyproxy/envoy:v1.25.1
+        imagePullPolicy: IfNotPresent
+        args: ["-l", "debug", "--local-address-ip-version", "v4", "-c", "/run/envoy/envoy.yaml"]
+        ports:
+        - containerPort: 9001
+        volumeMounts:
+        - name: envoy-config
+          mountPath: "/run/envoy"
+          readOnly: true
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
+      - name: auth-helper
+        image: envoy-jwt-auth-helper:latest
+        imagePullPolicy: IfNotPresent
+        args:  ["-config", "/run/auth-helper/config/envoy-jwt-auth-helper.conf"]
+        ports:
+        - containerPort: 9010
+        volumeMounts:
+        - name: auth-helper-config
+          mountPath: "/run/auth-helper/config"
+          readOnly: true
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
+      - name: backend
+        image: nginx
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: backend-profile-json-data
+          mountPath: /usr/share/nginx/html/mcp.json
+          subPath: mcp.json
+          readOnly: true
+        - name: backend-nginx
+          mountPath: /etc/nginx/conf.d/backend-mcp.conf
+          subPath: backend-mcp.conf
+          readOnly: true
+      - name: opa
+        image: openpolicyagent/opa:0.50.2-envoy
+        imagePullPolicy: IfNotPresent
+        ports:
+          - name: opa-envoy
+            containerPort: 8182
+            protocol: TCP
+          - name: opa-api-port
+            containerPort: 8181
+            protocol: TCP
+        args:
+          - "run"
+          - "--server"
+          - "--config-file=/run/opa/opa-config.yaml"
+          - "/run/opa/opa-policy.rego"
+        volumeMounts:
+          - name: backend-opa-policy
+            mountPath: /run/opa
+            readOnly: true
+      volumes:
+      - name: envoy-config
+        configMap:
+          name: backend-envoy
+      - name: backend-opa-policy
+        configMap:
+          name: backend-opa-policy-config
+      - name: spire-agent-socket
+        hostPath:
+          path: /run/spire/sockets
+          type: Directory
+      - name: auth-helper-config
+        configMap:
+            name: be-envoy-jwt-auth-helper-config
+      - name: backend-profile-json-data
+        configMap:
+          name: backend-profile-json-data
+      - name: backend-nginx
+        configMap:
+          name: backend-nginx

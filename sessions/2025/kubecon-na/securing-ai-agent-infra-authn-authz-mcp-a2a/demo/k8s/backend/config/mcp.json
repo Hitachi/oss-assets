@@ -1,0 +1,16 @@
+{
+  "jsonrpc": "2.0",
+  "id": "req-profile_1",
+  "result": {
+    "uri": "resource://profiles/profile_1",
+    "version": "latest",
+    "data": {
+      "Name": "Jacob Marley",
+      "Address": "48-49 Doughty ST, Holborn - London WC1N 2LX.UK"
+    },
+    "meta": {
+      "source": "mcp:profiles",
+      "ts": "2025-10-21T06:20:47Z"
+    }
+  }
+}

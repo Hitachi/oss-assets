@@ -1,0 +1,266 @@
+node:
+  id: "frontend"
+  cluster: "demo-cluster-spire"
+
+admin:
+  access_log:
+  - name: envoy.access_loggers.stdout
+    typed_config:
+      "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+  address:
+    socket_address:
+      protocol: TCP
+      address: 127.0.0.1
+      port_value: 8100
+
+static_resources:
+  listeners:
+  # =========================================================
+  # Inbound: Client -> Envoy(frontend) -> Frontend App
+  # - Calls ext_authz (AccessTokenValidatorWithDecision / UMA decision)
+  # - Only authorized requests reach the frontend application
+  # =========================================================
+  - name: inbound_proxy
+    address:
+      socket_address:
+        address: 0.0.0.0
+        port_value: 3000
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          common_http_protocol_options:
+            idle_timeout: 1s
+          codec_type: auto
+          access_log:
+          - name: envoy.access_loggers.stdout
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+              log_format:
+                json_format:
+                  start_time: "%START_TIME%"
+                  method: "%REQ(:METHOD)%"
+                  path: "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%"
+                  protocol: "%PROTOCOL%"
+                  resp_code: "%RESPONSE_CODE%"
+                  resp_flags: "%RESPONSE_FLAGS%"
+                  details: "%RESPONSE_CODE_DETAILS%"
+                  route_name: "%ROUTE_NAME%"
+                  upstream_cluster: "%UPSTREAM_CLUSTER%"
+                  x_request_id: "%REQ(X-REQUEST-ID)%"
+          stat_prefix: ingress_http
+          route_config:
+            name: frontend_route
+            virtual_hosts:
+            - name: frontend_vhost
+              domains: ["*"]
+              routes:
+              - match:
+                  path: "/.well-known/oauth-protected-resource"
+                typed_per_filter_config:
+                  envoy.filters.http.ext_authz:
+                    "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
+                    disabled: true
+                route:
+                  cluster: frontend_app 
+              - match:
+                  prefix: "/"
+                route:
+                  cluster: frontend_app
+          http_filters:
+          # Call UMA decision before the request is forwarded to the frontend app
+          - name: envoy.filters.http.ext_authz
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
+              transport_api_version: V3
+              failure_mode_allow: false
+              grpc_service:
+                envoy_grpc:
+                  cluster_name: ext-authz-decision   # gRPC ext_authz server (decision) listening on 127.0.0.1:9021
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+  # =========================================================
+  # Outbound: Frontend App -> Envoy(frontend) -> Backend Envoy (Pod B)
+  # - Calls ext_authz (AccessTokenExchanger / RFC 8693 Token Exchange)
+  # - Exchanges the client access token for a downstream-specific access token
+  #   and overwrites the Authorization header before sending to Backend
+  # =========================================================
+  - name: outbound_proxy
+    address:
+      socket_address:
+        address: 127.0.0.1
+        port_value: 3001
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          common_http_protocol_options:
+            idle_timeout: 1s
+          codec_type: auto
+          access_log:
+          - name: envoy.access_loggers.stdout
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+              log_format:
+                json_format:
+                  start_time: "%START_TIME%"
+                  method: "%REQ(:METHOD)%"
+                  path: "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%"
+                  protocol: "%PROTOCOL%"
+                  resp_code: "%RESPONSE_CODE%"
+                  resp_flags: "%RESPONSE_FLAGS%"
+                  details: "%RESPONSE_CODE_DETAILS%"
+                  route_name: "%ROUTE_NAME%"
+                  upstream_cluster: "%UPSTREAM_CLUSTER%"
+                  x_request_id: "%REQ(X-REQUEST-ID)%"
+          stat_prefix: egress_http
+          route_config:
+            name: service_route
+            virtual_hosts:
+            - name: outbound_proxy
+              domains: ["*"]
+              routes:
+              - match:
+                  prefix: "/"
+                route:
+                  cluster: backend
+          http_filters:
+          # Call token exchange before routing to Backend
+          - name: envoy.filters.http.ext_authz
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
+              transport_api_version: V3
+              failure_mode_allow: false
+              grpc_service:
+                envoy_grpc:
+                  cluster_name: ext-authz-exchange    # gRPC ext_authz server (exchange) listening on 127.0.0.1:9011
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+  clusters:
+  # =========================================================
+  # SPIRE Agent SDS cluster
+  # - Provides TLS/X.509/JWT materials to Envoy via SDS
+  # =========================================================
+  - name: spire_agent
+    connect_timeout: 0.25s
+    http2_protocol_options: {}
+    load_assignment:
+      cluster_name: spire_agent
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              pipe:
+                path: /run/spire/sockets/agent.sock
+
+  # =========================================================
+  # ext_authz (Inbound / UMA decision) - local gRPC server
+  # =========================================================
+  - name: ext-authz-decision
+    connect_timeout: 1s
+    type: strict_dns
+    http2_protocol_options: {}
+    load_assignment:
+      cluster_name: ext-authz-decision
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: 127.0.0.1
+                port_value: 9021
+
+  # =========================================================
+  # ext_authz (Outbound / Token Exchange) - local gRPC server
+  # =========================================================
+  - name: ext-authz-exchange
+    connect_timeout: 1s
+    type: strict_dns
+    http2_protocol_options: {}
+    load_assignment:
+      cluster_name: ext-authz-exchange
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: 127.0.0.1
+                port_value: 9011
+
+  # =========================================================
+  # Upstream to Backend Envoy (Pod B) over mTLS validated via SPIRE SDS
+  # =========================================================
+  - name: backend
+    connect_timeout: 0.25s
+    type: strict_dns
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: backend
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: backend-envoy
+                port_value: 9001
+    transport_socket:
+      name: envoy.transport_sockets.tls
+      typed_config:
+        "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+        common_tls_context:
+          tls_params:
+            ecdh_curves:
+              - X25519
+              - P-256
+              - P-521
+              - P-384
+          tls_certificate_sds_secret_configs:
+          - name: "spiffe://example.org/ns/default/sa/default/frontend"
+            sds_config:
+              resource_api_version: V3
+              api_config_source:
+                api_type: GRPC
+                transport_api_version: V3
+                grpc_services:
+                  envoy_grpc:
+                    cluster_name: spire_agent
+          combined_validation_context:
+            # Validate peer SPIFFE ID of the upstream (Backend)
+            default_validation_context:
+              match_typed_subject_alt_names:
+              - san_type: URI
+                matcher:
+                  exact: "spiffe://example.org/ns/default/sa/default/backend"
+            validation_context_sds_secret_config:
+              name: "spiffe://example.org"
+              sds_config:
+                resource_api_version: V3
+                api_config_source:
+                  api_type: GRPC
+                  transport_api_version: V3
+                  grpc_services:
+                    envoy_grpc:
+                      cluster_name: spire_agent
+
+  # =========================================================
+  # Local frontend application service (example: 127.0.0.1:8080)
+  # =========================================================
+  - name: frontend_app
+    connect_timeout: 0.25s
+    type: strict_dns
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: frontend_app
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: 127.0.0.1
+                port_value: 8080
