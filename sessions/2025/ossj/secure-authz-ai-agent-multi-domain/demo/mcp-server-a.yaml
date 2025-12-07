@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-server-a
+  namespace: agents
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-server-a
+  template:
+    metadata:
+      labels:
+        app: mcp-server-a
+    spec:
+      containers:
+        # Inbound Envoy
+        - name: envoy-inbound
+          image: envoyproxy/envoy:v1.31-latest
+          args:
+            - "-c"
+            - "/etc/envoy-in/envoy.yaml"
+            - "--log-level"
+            - "info"
+          ports:
+            - name: inbound
+              containerPort: 8080
+          volumeMounts:
+            - name: envoy-in-cfg
+              mountPath: /etc/envoy-in
+
+        # Egress Envoy (MCP-B traffic goes here)
+        - name: envoy-egress
+          image: envoyproxy/envoy:v1.31-latest
+          args:
+            - "-c"
+            - "/etc/envoy-eg/envoy.yaml"
+            - "--log-level"
+            - "info"
+            - "--base-id"
+            - "1"
+          ports:
+            - name: egress
+              containerPort: 8082
+          volumeMounts:
+            - name: envoy-eg-cfg
+              mountPath: /etc/envoy-eg
+
+        # MCP Hello World
+        - name: mcp-hello
+          image: mcp-hello:0.1
+          imagePullPolicy: Never
+          env:
+            - name: PORT
+              value: "8081"
+            - name: SERVER_NAME
+              value: "MCP-A"
+            - name: PRM_AUTH_SERVERS
+              value: "http://KC_A_HOST/realms/realm-a"
+            - name: MCP_B_BASE_URL
+              value: "http://127.0.0.1:8082"
+          ports:
+            - name: app
+              containerPort: 8081
+
+        # Introspection sidecar
+        - name: introspection-sidecar
+          image: mcp-introspect:0.1
+          imagePullPolicy: Never
+          envFrom:
+            - secretRef:
+                name: kc-introspect-a
+          ports:
+            - name: http
+              containerPort: 9000
+
+        # Token broker sidecar (RFC 8693 / JWT Authorization Grant)
+        - name: token-broker-sidecar
+          image: mcp-broker:0.1
+          imagePullPolicy: Never
+          envFrom:
+            - secretRef:
+                name: kc-broker-a
+          ports:
+            - name: http
+              containerPort: 9001
+
+      volumes:
+        - name: envoy-in-cfg
+          configMap:
+            name: envoy-inbound-a
+        - name: envoy-eg-cfg
+          configMap:
+            name: envoy-egress-a
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-server-a
+  namespace: agents
+spec:
+  type: NodePort
+  selector:
+    app: mcp-server-a
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      nodePort: 31080

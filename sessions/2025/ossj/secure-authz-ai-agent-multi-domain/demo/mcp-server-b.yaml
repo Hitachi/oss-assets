@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-server-b
+  namespace: agents
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-server-b
+  template:
+    metadata:
+      labels:
+        app: mcp-server-b
+    spec:
+      containers:
+        # Inbound Envoy
+        - name: envoy-inbound
+          image: envoyproxy/envoy:v1.31-latest
+          args:
+            - "-c"
+            - "/etc/envoy/envoy.yaml"
+            - "--log-level"
+            - "info"
+          ports:
+            - name: inbound
+              containerPort: 8080
+          volumeMounts:
+            - name: envoy-cfg
+              mountPath: /etc/envoy
+
+        # MCP Hello World
+        - name: mcp-hello
+          image: mcp-hello:0.1
+          imagePullPolicy: Never
+          env:
+            - name: PORT
+              value: "8081"
+            - name: SERVER_NAME
+              value: "MCP-B"
+            - name: PRM_AUTH_SERVERS
+              value: "http://KC_B_HOST/realms/realm-b"
+          ports:
+            - name: app
+              containerPort: 8081
+
+        # Introspection sidecar
+        - name: introspection-sidecar
+          image: mcp-introspect:0.1
+          imagePullPolicy: Never
+          envFrom:
+            - secretRef:
+                name: kc-introspect-b
+          ports:
+            - name: http
+              containerPort: 9000
+
+      volumes:
+        - name: envoy-cfg
+          configMap:
+            name: envoy-inbound-b
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-server-b
+  namespace: agents
+spec:
+  type: NodePort
+  selector:
+    app: mcp-server-b
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      nodePort: 32080
+
