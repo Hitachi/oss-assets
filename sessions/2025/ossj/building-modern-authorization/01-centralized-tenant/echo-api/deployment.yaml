@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-api
+  namespace: centralized-tenant
+  labels:
+    app: echo-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: echo-api
+  template:
+    metadata:
+      labels:
+        app: echo-api
+    spec:
+      containers:
+      - name: echo-api
+        image: ealen/echo-server:latest
+        env:
+        - name: PORT
+          value: "8080"
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-api
+  namespace: centralized-tenant
+spec:
+  selector:
+    app: echo-api
+  ports:
+  - port: 80
+    targetPort: 8080

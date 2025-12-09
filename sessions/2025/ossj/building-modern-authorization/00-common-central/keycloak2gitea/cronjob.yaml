@@ -1,0 +1,117 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sync-script-config
+  namespace: common-central
+data:
+  sync.sh: |
+    #!/bin/bash
+    set -e
+
+    # --- Configuration ---
+    KC_URL="http://keycloak.common-central.svc.cluster.local:8080"
+    GIT_URL="http://gitea.common-central.svc.cluster.local:3000"
+    
+    KC_REALM="demo"
+    GIT_USER="opal"
+    GIT_PASS="password"
+    GIT_REPO="policies"
+    
+    TARGET_DIR="distributed"
+    DATA_FILE="data.json"
+    MANIFEST_FILE=".manifest"
+
+    echo "🚀 Starting Sync (Internal K8s)..."
+
+    # --- 1. Extract (Keycloak) ---
+    echo "📥 Fetching users from Keycloak..."
+    
+    TOKEN_RESP=$(curl -s -X POST "$KC_URL/realms/master/protocol/openid-connect/token" \
+      -d "client_id=admin-cli" -d "username=admin" -d "password=admin" -d "grant_type=password")
+    ADMIN_TOKEN=$(echo $TOKEN_RESP | jq -r '.access_token')
+
+    if [ "$ADMIN_TOKEN" == "null" ]; then echo "❌ Failed to get KC token"; exit 1; fi
+
+    KC_USERS_JSON=$(curl -s -X GET "$KC_URL/admin/realms/$KC_REALM/users" \
+      -H "Authorization: Bearer $ADMIN_TOKEN")
+
+    # --- 2. Transform (jq) ---
+    echo "🔄 Transforming data (Extracting Roles)..."
+    
+    OPA_DATA_JSON=$(echo "$KC_USERS_JSON" | jq -r '
+      {
+        "permissions": (
+          reduce .[] as $u ({}; . + {
+            ($u.username): [
+              {
+                "role": (if ($u.attributes.role and ($u.attributes.role | length > 0)) then $u.attributes.role[0] else "guest" end)
+              }
+            ]
+          })
+        )
+      }
+    ')
+
+    # --- 3. Load (Gitea) ---
+    echo "mw_up_arrow Pushing to Gitea ($TARGET_DIR)..."
+
+    upload_file() {
+        local fpath=$1
+        local content=$2
+        local msg=$3
+        
+        local api="$GIT_URL/api/v1"
+        local sha=$(curl -s "$api/repos/$GIT_USER/$GIT_REPO/contents/$fpath" -u "$GIT_USER:$GIT_PASS" | grep -o '"sha":"[^"]*"' | cut -d '"' -f 4 || true)
+        
+        local method="POST"
+        local sha_part=""
+        if [ ! -z "$sha" ]; then
+            method="PUT"
+            sha_part="\"sha\": \"$sha\","
+        fi
+
+        local b64=$(echo "$content" | openssl base64 -A)
+        local payload="{ \"content\": \"$b64\", \"message\": \"$msg\", \"branch\": \"main\", $sha_part \"new_branch\": \"main\" }"
+
+        curl -s -o /dev/null -X $method "$api/repos/$GIT_USER/$GIT_REPO/contents/$fpath" \
+          -u "$GIT_USER:$GIT_PASS" -H "Content-Type: application/json" -d "$payload"
+    }
+
+    # 3.1 Push data.json
+    upload_file "$TARGET_DIR/$DATA_FILE" "$OPA_DATA_JSON" "Sync users (CronJob)"
+
+    # 3.2 Ensure manifest exists
+    MANIFEST_CONTENT=$(cat <<EOF
+    policy.rego
+    data.json
+    EOF
+    )
+    upload_file "$TARGET_DIR/$MANIFEST_FILE" "$MANIFEST_CONTENT" "Ensure manifest (CronJob)"
+
+    echo "✅ Sync finished."
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: user-sync-job
+  namespace: common-central
+spec:
+  schedule: "*/1 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: sync
+            image: alpine:latest
+            command: ["/bin/sh", "-c"]
+            args:
+              - apk add --no-cache curl jq openssl bash && bash /scripts/sync.sh
+            volumeMounts:
+            - name: script-vol
+              mountPath: /scripts
+          restartPolicy: OnFailure
+          volumes:
+          - name: script-vol
+            configMap:
+              name: sync-script-config

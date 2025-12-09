@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-api-sidecar
+  namespace: hybrid-tenant
+  labels:
+    app: echo-api-sidecar
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: echo-api-sidecar
+  template:
+    metadata:
+      labels:
+        app: echo-api-sidecar
+    spec:
+      containers:
+      # 1. Main App (Echo Server)
+      - name: echo-api
+        image: ealen/echo-server:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: PORT
+          value: "8080"
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+
+      # 2. Sidecar: Envoy
+      - name: envoy
+        image: envoyproxy/envoy:v1.30-latest
+        imagePullPolicy: IfNotPresent
+        command: ["envoy", "-c", "/config/envoy.yaml"]
+        ports:
+        - containerPort: 8000
+        volumeMounts:
+        - name: sidecar-configs
+          mountPath: /config
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+
+      # 3. Sidecar: OPA 
+      - name: opa
+        image: openpolicyagent/opa:latest-envoy
+        imagePullPolicy: IfNotPresent
+        args:
+          - "run"
+          - "--server"
+          - "--addr=localhost:8181" 
+          - "--diagnostic-addr=0.0.0.0:8282"
+          - "--set=plugins.envoy_ext_authz_grpc.addr=:9191"
+          - "--set=decision_logs.console=true"
+          - "--ignore=.*" 
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+
+      # 4. Sidecar: OPAL Client 
+      - name: opal-client
+        image: permitio/opal-client:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: OPAL_SERVER_URL
+          value: "http://opal-server.common-central.svc.cluster.local:7002"
+        - name: OPAL_CLIENT_TOKEN
+          value: "demo-secret-token"
+        - name: OPAL_DATA_TOPICS
+          value: "policy_data"
+        - name: OPAL_OPA_URL
+          value: "http://localhost:8181"
+        - name: OPAL_POLICY_SUBSCRIPTION_DIRS
+          value: "hybrid"
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+      
+      volumes:
+      - name: sidecar-configs
+        configMap:
+          name: sidecar-configs
