@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opal-server
+  namespace: common-central
+  labels:
+    app: opal-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opal-server
+  template:
+    metadata:
+      labels:
+        app: opal-server
+    spec:
+      containers:
+      - name: opal-server
+        image: permitio/opal-server:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 7002
+        - containerPort: 8080
+        env:
+        - name: OPAL_POLICY_REPO_URL
+          value: "http://gitea.common-central.svc.cluster.local:3000/opal/policies.git"
+        - name: OPAL_POLICY_REPO_MAIN_BRANCH
+          value: "main"
+        - name: OPAL_POLICY_REPO_POLLING_INTERVAL
+          value: "10"
+        - name: OPAL_CLIENT_TOKEN
+          value: "demo-secret-token"
+        - name: OPAL_LOG_LEVEL
+          value: "INFO"
+        - name: OPAL_BROADCAST_URI
+          value: "http://opal-server.common-central.svc.cluster.local:7002"
+        - name: OPAL_DATA_CONFIG_SOURCES
+          value: '{"config":{"entries":[]}}'
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opal-server
+  namespace: common-central
+spec:
+  selector:
+    app: opal-server
+  ports:
+  - name: opal
+    port: 7002
+    targetPort: 7002
+  - name: http
+    port: 8080
+    targetPort: 8080

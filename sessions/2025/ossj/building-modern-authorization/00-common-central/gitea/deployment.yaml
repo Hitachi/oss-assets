@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitea
+  namespace: common-central
+  labels:
+    app: gitea
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gitea
+  template:
+    metadata:
+      labels:
+        app: gitea
+    spec:
+      containers:
+      - name: gitea
+        image: gitea/gitea:1.22-rootless
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+          name: http
+        - containerPort: 2222 
+          name: ssh
+        env:
+        - name: GITEA__database__DB_TYPE
+          value: "sqlite3"
+        - name: GITEA__database__PATH
+          value: "/data/gitea.db"
+        - name: GITEA__security__INSTALL_LOCK
+          value: "true"
+        - name: GITEA__service__DISABLE_REGISTRATION
+          value: "false"
+        - name: GITEA__server__HTTP_PORT
+          value: "3000"
+        
+        volumeMounts:
+        - name: gitea-data
+          mountPath: /data
+        
+        livenessProbe:
+          httpGet:
+            path: /api/v1/version
+            port: http
+          initialDelaySeconds: 20
+          periodSeconds: 10
+      
+      volumes:
+      - name: gitea-data
+        emptyDir: {} 
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitea
+  namespace: common-central
+spec:
+  type: NodePort
+  selector:
+    app: gitea
+  ports:
+  - name: http
+    port: 3000
+    targetPort: 3000
+    nodePort: 30004 
+  - name: ssh
+    port: 22
+    targetPort: 2222 

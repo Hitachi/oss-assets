@@ -1,0 +1,164 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: keycloak-setup
+  namespace: common-central
+spec:
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: kcadm
+        image: quay.io/keycloak/keycloak:26.0
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            set -e
+            KCADM="/opt/keycloak/bin/kcadm.sh"
+
+            echo "⏳ Waiting for Keycloak to be ready..."
+            until $KCADM config credentials --server http://keycloak.common-central.svc.cluster.local:8080 \
+              --realm master --user admin --password admin > /dev/null 2>&1; do
+              echo "Keycloak is unavailable. Sleeping 5s..."
+              sleep 5
+            done
+            echo "✅ Login successful!"
+
+            # --- 1. Realm Setup ---
+            echo "📦 Ensuring Realm 'demo' exists..."
+            $KCADM create realms -s realm=demo -s enabled=true -o || true
+
+            echo "   Enabling Unmanaged Attributes..."
+            $KCADM update users/profile -r demo -s unmanagedAttributePolicy=ENABLED
+
+            # --- 2. Client Setup ---
+            echo "💻 Ensuring Client 'demo-client' exists..."
+            CLIENT_ID=$($KCADM get clients -r demo -q clientId=demo-client --fields id --format csv --noquotes | tr -d '\r\n')
+
+            if [ -z "$CLIENT_ID" ]; then
+                $KCADM create clients -r demo \
+                  -s clientId=demo-client \
+                  -s enabled=true \
+                  -s publicClient=true \
+                  -s directAccessGrantsEnabled=true \
+                  -s standardFlowEnabled=true \
+                  -s 'redirectUris=["*"]' \
+                  -s 'webOrigins=["*"]'
+                CLIENT_ID=$($KCADM get clients -r demo -q clientId=demo-client --fields id --format csv --noquotes | tr -d '\r\n')
+            fi
+
+            echo "🗺️  Configuring Group Mapper..."
+            HAS_MAPPER=$($KCADM get clients/$CLIENT_ID/protocol-mappers/models -r demo --format csv --noquotes | grep "group-mapper" || true)
+            if [ -z "$HAS_MAPPER" ]; then
+              $KCADM create clients/$CLIENT_ID/protocol-mappers/models -r demo \
+                -s name="group-mapper" \
+                -s protocol="openid-connect" \
+                -s protocolMapper="oidc-group-membership-mapper" \
+                -s 'config."claim.name"="groups"' \
+                -s 'config."full.path"="false"' \
+                -s 'config."id.token.claim"="true"' \
+                -s 'config."access.token.claim"="true"' \
+                -s 'config."userinfo.token.claim"="true"'
+            fi
+
+            create_group() {
+                local GNAME=$1
+                echo "🏢 Ensuring Group '$GNAME' exists..."
+                $KCADM create groups -r demo -s name="$GNAME" -o 2>/dev/null || true
+            }
+            create_group "A Company"
+            create_group "B Company"
+
+            # --- NGINX PEP Setup ---
+            echo "🛡️  Configuring 'nginx-pep' Client..."
+            PEP_ID=$($KCADM get clients -r demo -q clientId=nginx-pep --fields id --format csv --noquotes | tr -d '\r\n')
+
+            if [ -z "$PEP_ID" ]; then
+                $KCADM create clients -r demo \
+                  -s clientId=nginx-pep \
+                  -s secret=secret \
+                  -s publicClient=false \
+                  -s serviceAccountsEnabled=true \
+                  -s authorizationServicesEnabled=true \
+                  -s 'redirectUris=["*"]'
+                PEP_ID=$($KCADM get clients -r demo -q clientId=nginx-pep --fields id --format csv --noquotes | tr -d '\r\n')
+            fi
+
+            RES_NAME="echo-resource"
+            HAS_RES=$($KCADM get clients/$PEP_ID/authz/resource-server/resource -r demo -q name="$RES_NAME" --fields _id --format csv --noquotes)
+            if [ -z "$HAS_RES" ]; then
+                $KCADM create clients/$PEP_ID/authz/resource-server/resource -r demo \
+                  -s name="$RES_NAME" \
+                  -s 'uris=["/echo"]'
+            fi
+
+            POL_NAME="Admin Group Policy"
+            HAS_POL=$($KCADM get clients/$PEP_ID/authz/resource-server/policy -r demo -q name="$POL_NAME" --fields id --format csv --noquotes)
+            if [ -z "$HAS_POL" ]; then
+                GROUP_A_ID=$($KCADM get groups -r demo -q search="A Company" --fields id --format csv --noquotes | head -n1 | cut -d',' -f1 | tr -d '\r\n')
+                $KCADM create clients/$PEP_ID/authz/resource-server/policy/group -r demo \
+                  -s name="$POL_NAME" \
+                  -s logic=POSITIVE \
+                  -s "groups=[{\"id\": \"$GROUP_A_ID\"}]"
+            fi
+
+            PERM_NAME="Echo Permission"
+            HAS_PERM=$($KCADM get clients/$PEP_ID/authz/resource-server/permission -r demo -q name="$PERM_NAME" --fields id --format csv --noquotes)
+            if [ -z "$HAS_PERM" ]; then
+                $KCADM create clients/$PEP_ID/authz/resource-server/permission/resource -r demo \
+                  -s name="$PERM_NAME" \
+                  -s "resources=[\"$RES_NAME\"]" \
+                  -s "policies=[\"$POL_NAME\"]"
+            fi
+
+            # --- 3. User Setup Function ---
+            setup_user() {
+                local USER=$1
+                local PASS=$2
+                local ROLE=$3
+                local GROUP=$4
+                local FIRST=$5
+                local LAST=$6
+                local EMAIL=$7
+
+                echo "👤 Processing user '$USER'..."
+
+                $KCADM create users -r demo -s username="$USER" -s enabled=true 2>/dev/null || true
+
+                local USER_ID=$($KCADM get users -r demo -q username="$USER" --fields id --format csv --noquotes | tr -d '\r\n')
+
+                if [ -z "$USER_ID" ]; then
+                    echo "❌ Error: Could not find user ID for $USER"
+                    return 1
+                fi
+
+                local ATTR_JSON=$(printf '{"role":["%s"]}' "$ROLE")
+                
+                $KCADM update "users/$USER_ID" -r demo \
+                  -s firstName="$FIRST" \
+                  -s lastName="$LAST" \
+                  -s email="$EMAIL" \
+                  -s enabled=true \
+                  -s emailVerified=true \
+                  -s "attributes=$ATTR_JSON"
+
+                $KCADM set-password -r demo --username "$USER" --new-password "$PASS" --temporary=false
+
+                local GROUP_ID=$($KCADM get groups -r demo -q "search=$GROUP" --fields id,name --format csv --noquotes | head -n1 | cut -d',' -f1 | tr -d '\r\n')
+
+                if [ -n "$GROUP_ID" ]; then
+                    $KCADM update "users/$USER_ID/groups/$GROUP_ID" -r demo -n 2>/dev/null || true
+                    echo "   Joined Group: $GROUP (ID: $GROUP_ID)"
+                else
+                    echo "❌ Error: Group '$GROUP' not found!"
+                fi
+
+                echo "✅ User '$USER' set with Role: '$ROLE', Group: '$GROUP'."
+            }
+
+            # --- 4. Execute User Setup ---
+            setup_user "alice" "password" "admin" "A Company" "Alice" "Wonderland" "Alice@example.com"
+            setup_user "bob"   "password" "guest" "B Company" "Bob" "Builder" "Bob@example.com"
+
+            echo "🎉 Keycloak configuration complete!"
