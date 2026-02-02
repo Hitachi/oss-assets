@@ -34,14 +34,13 @@ current_tokens = {
 
 
 async def login_flow():
-    """Login using authorization code flow with HTTP Basic Authentication"""
+    """Login using authorization code flow"""
     global auth_code, code_verifier
     
     auth_code = None
     
     logger.info("=" * 80)
     logger.info("Starting Keycloak Authorization Code Flow")
-    logger.info("Client Authentication Method: HTTP Basic (OAuth 2.1 recommended)")
     logger.info("=" * 80)
     
     # Generate PKCE parameters
@@ -91,18 +90,18 @@ async def login_flow():
         logger.error("✗ Timeout: Failed to receive authorization code")
         return False
     
-    # Exchange authorization code for access token using HTTP Basic Authentication
+    # Exchange authorization code for access token
     try:
         logger.info("=" * 80)
-        logger.info("Requesting token with HTTP Basic Authentication...")
+        logger.info("Requesting token...")
         logger.info(f"Using Code Verifier: {code_verifier}")
         
-        # Create a separate KeycloakOpenID instance for HTTP Basic authentication
+        # Create KeycloakOpenID instance
         keycloak_openid = KeycloakOpenID(
             server_url=KEYCLOAK_SERVER_URL,
             client_id=KEYCLOAK_CLIENT_ID,
             realm_name=KEYCLOAK_REALM,
-            client_secret_key=None  # Don't set secret to avoid body inclusion
+            client_secret_key=KEYCLOAK_CLIENT_SECRET  # Set secret to include in request body
         )
         
         # Create HTTP Basic Authentication header
@@ -112,7 +111,7 @@ async def login_flow():
         # Add Authorization header with Basic authentication
         keycloak_openid.connection.add_param_headers("Authorization", f"Basic {basic_auth}")
                 
-        # Call token endpoint
+        # Call token endpoint (client_id and client_secret will be included in body)
         token_response = keycloak_openid.token(
             grant_type='authorization_code',
             code=auth_code,
@@ -218,3 +217,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
