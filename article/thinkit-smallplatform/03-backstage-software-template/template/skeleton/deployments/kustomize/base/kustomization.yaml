@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- deployment.yaml
+- service.yaml
+- configmap.yaml
+- httproute.yaml
+
+commonAnnotations:
+  app.kubernetes.io/name: ${{values.k8sResource.name}}
+  app.kubernetes.io/part-of: ${{values.k8sResource.name}}-suite
+
+images:
+- name: app-image
+  newName: ${{values.image.registry + "/" + values.image.namespace + "/" + values.image.repoName}}
+  newTag: latest
+labels:
+- includeSelectors: true
+  pairs:
+    app: app
+    version: v1

@@ -1,0 +1,112 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  release:
+    types: [ published ]
+
+env:
+  REGISTRY: ${{ values.image.registry + "/" + values.image.namespace }}
+  IMAGE_NAME: ${{ values.image.repoName }}
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: '1.25'
+        cache: true
+        cache-dependency-path: go.sum
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Format check
+      run: |
+        make fmt
+        if [ -n "$(git diff --name-only)" ]; then
+          echo "Code is not formatted. Please run 'make fmt' or 'goimports -w .'"
+          git diff
+          exit 1
+        fi
+
+    - name: Run linter
+      run: make lint
+
+    - name: Run unit tests
+      run: make test
+
+  docker-build-and-push:
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+    outputs:
+      image: ${{ '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}' }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ '${{ env.REGISTRY }}' }}
+        username: ${{ '${{ github.actor }}' }}
+        password: ${{ '${{ secrets.GITHUB_TOKEN }}' }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}' }}
+        tags: |
+          type=ref,event=branch
+          type=sha,format=short
+          type=raw,value=latest,enable={{is_default_branch}}
+        labels: |
+          org.opencontainers.image.title=${{ '${{ github.repository }}' }}
+          org.opencontainers.image.description=Template application built with Go and Echo
+          org.opencontainers.image.vendor=${{ '${{ github.repository_owner }}' }}
+          org.opencontainers.image.source=https://github.com/${{ '${{ github.repository }}' }}
+
+    - name: Build Docker image for security scan
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        platforms: linux/amd64
+        push: false
+        tags: local-scan:latest
+        cache-from: type=gha,scope=security-scan
+        cache-to: type=gha,mode=min,scope=security-scan
+        load: true
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'local-scan:latest'
+        severity: 'CRITICAL,HIGH'
+        exit-code: 1
+
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: ${{ '${{ steps.meta.outputs.tags }}' }}
+        labels: ${{ '${{ steps.meta.outputs.labels }}' }}
+        cache-from: type=gha,scope=build
+        cache-to: type=gha,mode=max,scope=build

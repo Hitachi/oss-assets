@@ -1,0 +1,38 @@
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: ${{values.k8sResource.name}}-authpolicy
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: ${{values.k8sResource.name}}
+  defaults:
+    rules:
+      authentication:
+        "keycloak-introspection":
+          oauth2Introspection:
+            endpoint: http://keycloak.172.32.4.127.nip.io/realms/${{values.keycloakRealm}}/protocol/openid-connect/token/introspect
+            credentialsRef:
+              name: keycloak-${{values.k8sResource.name}}-token-introspection-client-secret
+      response:
+        unauthenticated:
+          headers:
+            "content-type":
+              value: application/json
+          body:
+            value: |
+              {
+                "error": "Unauthorized",
+                "message": "401 Unauthorized: token introspection failed."
+              }
+        unauthorized:
+          headers:
+            "content-type":
+              value: application/json
+          body:
+            value: |
+              {
+                "error": "Forbidden",
+                "message": "403 Forbidden: policy check failed."
+              }

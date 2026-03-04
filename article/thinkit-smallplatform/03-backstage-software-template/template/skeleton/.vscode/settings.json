@@ -1,0 +1,27 @@
+{
+  "go.lintTool": "golangci-lint",
+  "go.alternateTools": {
+    "golangci-lint": "go tool github.com/golangci/golangci-lint/cmd/golangci-lint"
+  },
+  "go.lintFlags": [
+    "--config=${workspaceFolder}/.golangci.toml",
+    "--fast"
+  ],
+  "go.lintOnSave": "package",
+  "go.formatTool": "goimports",
+  "go.useLanguageServer": true,
+  "[go]": {
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit"
+    }
+  },
+  "[go.mod]": {
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit"
+    }
+  },
+  "gopls": {
+    "formatting.gofumpt": true
+  }
+}
