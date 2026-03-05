@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${{values.k8sResource.name}}-config
+  labels:
+    app: app
+data:
+  PORT: "8080"
+  LOG_LEVEL: "info"

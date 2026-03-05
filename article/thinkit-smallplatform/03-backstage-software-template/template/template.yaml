@@ -1,0 +1,141 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: go-echo-template
+  title: Go echo template
+  description: GoのechoによるREST APIテンプレート
+spec:
+  owner: backstageadmin
+  type: service
+  parameters:
+    - title: Fill in some steps
+      required:
+        - name
+        - image
+        - k8sResource
+        - domain
+        - keycloakRealm
+      properties:
+        name:
+          title: Name
+          type: string
+          description: Unique name of the component
+          pattern: '^[a-z]([-a-z0-9]*[a-z0-9])?$'
+          ui:autofocus: true
+          ui:options:
+            rows: 5
+        image:
+          type: object
+          title: Container image
+          description: Container image settings
+          required:
+            - registry
+            - namespace
+            - repoName
+          properties:
+            registry:
+              title: Registry
+              type: string
+              description: Container registry to push the image to
+              default: ghcr.io
+              enum:
+                - ghcr.io
+              enumNames:
+                - ghcr.io (GitHub Container Registry)
+            namespace:
+              title: Namespace
+              type: string
+              description: Container registry namespace (usually your username or organization name)
+              default: makihh
+            repoName:
+              title: Repository Name
+              type: string
+              description: Container image repository name
+        k8sResource:
+          type: object
+          title: Kubernetes Resource Settings
+          required:
+            - name
+            - namespace
+          properties:
+            name:
+              title: Kubernetes Resource Name
+              type: string
+              description: cabab-case
+              pattern: '^[a-z]([-a-z0-9]*[a-z0-9])?$'
+              maxLength: 28
+            namespace:
+              title: Kubernetes Namespace
+              type: string
+              description: Kubernetes Namespace to deploy the resources into
+              pattern: '^[a-z]([-a-z0-9]*[a-z0-9])?$'
+              maxLength: 63
+        domain:
+          title: Application Domain
+          type: string
+          description: The domain where the application will be accessible
+          default: template-app.172.32.4.127.nip.io
+        keycloakRealm:
+          title: Keycloak Realm
+          type: string
+          description: Keycloak Realm for authentication
+    - title: Choose a location
+      required:
+        - repoUrl
+      properties:
+        repoUrl:
+          title: Repository Location
+          type: string
+          ui:field: RepoUrlPicker
+          ui:options:
+            allowedHosts:
+              - github.com
+
+  # 順序実行されるステップ
+  steps:
+    # テンプレートを取得して、パラメータを埋め込む
+    - id: fetchBase
+      name: Fetch Base
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          name: ${{ parameters.name }}
+          image: ${{ parameters.image }}
+          destination: ${{ parameters.repoUrl | parseRepoUrl }}
+          k8sResource: ${{ parameters.k8sResource }}
+          domain: ${{ parameters.domain }}
+          keycloakRealm: ${{ parameters.keycloakRealm }}
+
+    # リポジトリにコードをプッシュする
+    - id: publish
+      name: Publish
+      action: publish:github
+      input:
+        description: This is ${{ parameters.name }}
+        repoUrl: ${{ parameters.repoUrl }}
+        defaultBranch: 'main'
+
+    # ソフトウェアカタログに登録する
+    - id: registerComponent
+      name: Register Component
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish'].output.repoContentsUrl }}
+        catalogInfoPath: '/catalog-info.yaml'
+
+    # APIカタログに登録する
+    - id: registerApi
+      name: Register API
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps['publish'].output.repoContentsUrl }}
+        catalogInfoPath: '/catalog-api.yaml'
+
+    # TechDocカタログに登録する
+    # - id: registerTechDoc
+    #   name: Register TechDoc
+    #   action: catalog:register
+    #   input:
+    #     repoContentsUrl: ${{ steps['publish'].output.repoContentsUrl }}
+    #     catalogInfoPath: '/mkdocs.yaml'
