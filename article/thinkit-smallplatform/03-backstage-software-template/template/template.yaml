@@ -5,7 +5,7 @@ metadata:
   title: Go echo template
   description: GoのechoによるREST APIテンプレート
 spec:
-  owner: backstageadmin
+  owner: guests
   type: service
   parameters:
     - title: Fill in some steps
@@ -79,6 +79,14 @@ spec:
           title: Keycloak Realm
           type: string
           description: Keycloak Realm for authentication
+        owner:
+          title: Owner Group
+          type: string
+          description: The group that will be set as the owner of the component in Backstage
+          ui:field: EntityPicker
+          ui:options:
+            catalogFilter:
+              - kind: Group
     - title: Choose a location
       required:
         - repoUrl
@@ -93,7 +101,7 @@ spec:
 
   # 順序実行されるステップ
   steps:
-    # テンプレートを取得して、パラメータを埋め込む
+    # スケルトンを取得して、パラメータを埋め込む
     - id: fetchBase
       name: Fetch Base
       action: fetch:template
@@ -106,6 +114,7 @@ spec:
           k8sResource: ${{ parameters.k8sResource }}
           domain: ${{ parameters.domain }}
           keycloakRealm: ${{ parameters.keycloakRealm }}
+          owner: ${{ parameters.owner | parseEntityRef | pick('name')}}
 
     # リポジトリにコードをプッシュする
     - id: publish
@@ -131,11 +140,3 @@ spec:
       input:
         repoContentsUrl: ${{ steps['publish'].output.repoContentsUrl }}
         catalogInfoPath: '/catalog-api.yaml'
-
-    # TechDocカタログに登録する
-    # - id: registerTechDoc
-    #   name: Register TechDoc
-    #   action: catalog:register
-    #   input:
-    #     repoContentsUrl: ${{ steps['publish'].output.repoContentsUrl }}
-    #     catalogInfoPath: '/mkdocs.yaml'
