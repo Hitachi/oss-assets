@@ -6,6 +6,6 @@ metadata:
 spec:
   type: openapi
   lifecycle: experimental
-  owner: backstageadmin
+  owner: ${{ values.owner}}
   definition: |
     REPLACE
