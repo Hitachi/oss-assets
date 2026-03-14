@@ -1,5 +1,5 @@
 {
-  "client_id": "https://github.com/Hitachi/oss-assets/blob/main/article/thinkit-mcp-auth/04-cimd/mcp-client.json",
+  "client_id": "https://raw.githubusercontent.com/Hitachi/oss-assets/main/article/thinkit-mcp-auth/04-cimd/mcp-client.json",
   "client_name": "MCP Inspector",
   "redirect_uris": [
     "http://localhost:6274/oauth/callback"
