@@ -5,6 +5,8 @@
   "redirect_uris": [
     "http://localhost:6274/oauth/callback",
     "http://127.0.0.1:6274/oauth/callback"
+    "http://localhost:6274/oauth/callback/debug",
+    "http://127.0.0.1:6274/oauth/callback/debug"
   ],
   "grant_types": ["authorization_code"],
   "response_types": ["code"],
