@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-server-b
+  namespace: workload
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-server-b
+  template:
+    metadata:
+      labels:
+        app: api-server-b
+    spec:
+      containers:
+        # Inbound Envoy
+        - name: envoy-inbound
+          image: envoyproxy/envoy:v1.31-latest
+          args:
+            - "-c"
+            - "/etc/envoy/envoy.yaml"
+            - "--log-level"
+            - "info"
+          ports:
+            - name: inbound
+              containerPort: 8080
+          volumeMounts:
+            - name: envoy-cfg
+              mountPath: /etc/envoy
+
+        # API Hello World
+        - name: api-hello
+          image: api-hello:0.1
+          imagePullPolicy: Never
+          env:
+            - name: PORT
+              value: "8081"
+            - name: SERVER_NAME
+              value: "API-B"
+          ports:
+            - name: app
+              containerPort: 8081
+
+        # Introspection sidecar
+        - name: introspection-sidecar
+          image: api-introspect:0.1
+          imagePullPolicy: Never
+          envFrom:
+            - secretRef:
+                name: kc-introspect-b
+          ports:
+            - name: http
+              containerPort: 9000
+          volumeMounts:
+            - name: spiffe-workload-api
+              mountPath: /run/spire/agent-sockets
+              readOnly: true
+
+      volumes:
+        - name: envoy-cfg
+          configMap:
+            name: envoy-inbound-b
+        - name: spiffe-workload-api
+          csi:
+            driver: csi.spiffe.io
+            readOnly: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-server-b
+  namespace: workload
+spec:
+  type: NodePort
+  selector:
+    app: api-server-b
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      nodePort: 32080
+

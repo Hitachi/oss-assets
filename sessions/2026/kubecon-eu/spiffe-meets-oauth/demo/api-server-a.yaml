@@ -1,0 +1,119 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-server-a
+  namespace: workload
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-server-a
+  template:
+    metadata:
+      labels:
+        app: api-server-a
+    spec:
+      containers:
+        # Inbound Envoy
+        - name: envoy-inbound
+          image: envoyproxy/envoy:v1.31-latest
+          args:
+            - "-c"
+            - "/etc/envoy-in/envoy.yaml"
+            - "--log-level"
+            - "info"
+          ports:
+            - name: inbound
+              containerPort: 8080
+          volumeMounts:
+            - name: envoy-in-cfg
+              mountPath: /etc/envoy-in
+
+        # Egress Envoy (API-B traffic goes here)
+        - name: envoy-egress
+          image: envoyproxy/envoy:v1.31-latest
+          args:
+            - "-c"
+            - "/etc/envoy-eg/envoy.yaml"
+            - "--log-level"
+            - "info"
+            - "--base-id"
+            - "1"
+          ports:
+            - name: egress
+              containerPort: 8082
+          volumeMounts:
+            - name: envoy-eg-cfg
+              mountPath: /etc/envoy-eg
+
+        # API Hello World
+        - name: api-hello
+          image: api-hello:0.1
+          imagePullPolicy: Never
+          env:
+            - name: PORT
+              value: "8081"
+            - name: SERVER_NAME
+              value: "API-A"
+            - name: API_B_BASE_URL
+              value: "http://127.0.0.1:8082"
+          ports:
+            - name: app
+              containerPort: 8081
+
+        # Introspection sidecar
+        - name: introspection-sidecar
+          image: api-introspect:0.1
+          imagePullPolicy: Never
+          envFrom:
+            - secretRef:
+                name: kc-introspect-a
+          ports:
+            - name: http
+              containerPort: 9000
+          volumeMounts:
+            - name: spiffe-workload-api
+              mountPath: /run/spire/agent-sockets
+              readOnly: true
+
+        # Token broker sidecar (RFC 8693 / JWT Authorization Grant)
+        - name: token-broker-sidecar
+          image: api-broker:0.1
+          imagePullPolicy: Never
+          envFrom:
+            - secretRef:
+                name: kc-broker-a
+          ports:
+            - name: http
+              containerPort: 9001
+          volumeMounts:
+            - name: spiffe-workload-api
+              mountPath: /run/spire/agent-sockets
+              readOnly: true
+
+      volumes:
+        - name: envoy-in-cfg
+          configMap:
+            name: envoy-inbound-a
+        - name: envoy-eg-cfg
+          configMap:
+            name: envoy-egress-a
+        - name: spiffe-workload-api
+          csi:
+            driver: csi.spiffe.io
+            readOnly: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-server-a
+  namespace: workload
+spec:
+  type: NodePort
+  selector:
+    app: api-server-a
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      nodePort: 31080

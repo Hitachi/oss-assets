@@ -1,0 +1,23 @@
+spire-server:
+  service:
+    type: LoadBalancer
+  federation:
+    enabled: true
+    ingress:
+      enabled: true
+  controllerManager:
+    identities:
+      clusterFederatedTrustDomains:
+        api-a:
+          bundleEndpointProfile:
+            endpointSPIFFEID: spiffe://td1.example/spire/server
+            type: https_spiffe
+          bundleEndpointURL: https://SPIFFE_B_IP:8443
+          trustDomain: td1.example
+
+global:
+  spire:
+    trustDomain: td2.example
+    tools:
+      kubectl:
+        tag: v1.32.2
