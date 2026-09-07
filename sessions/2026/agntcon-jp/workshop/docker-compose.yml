@@ -1,0 +1,162 @@
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7
+    container_name: keycloak
+    command:
+      - start-dev
+      - --import-realm
+      - --hostname=keycloak.localtest.me
+      - --https-certificate-file=/certs/tls.crt
+      - --https-certificate-key-file=/certs/tls.key
+      - --tracing-enabled=true
+      - --telemetry-endpoint=http://otel-collector:4317
+      - --telemetry-service-name=keycloak
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_FEATURES: cimd
+    ports:
+      - "8443:8443"
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8443"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - ./keycloak/realm-export:/opt/keycloak/data/import
+      - ./keycloak/data:/opt/keycloak/data
+      - ./certs:/certs
+    depends_on:
+      - otel-collector
+    networks:
+      - workshop
+
+  mcp-server:
+    build:
+      context: ./mcp-server
+    container_name: mcp-server
+    ports:
+      - "3000:3000"
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: mcp-server
+    depends_on:
+      - otel-collector
+    networks:
+      - workshop
+
+  agentgateway:
+    image: ghcr.io/agentgateway/agentgateway:v1.5.0
+    container_name: agentgateway
+    restart: always
+    command:
+      - --file
+      - /config/config.yaml
+    ports:
+      - "8088:8080"
+      - "15000:15000"
+    environment:
+      SSL_CERT_FILE: /certs/ca.crt
+    volumes:
+      - ./agentgateway/config:/config:ro
+      - ./certs/ca.crt:/certs/ca.crt:ro
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      mcp-server:
+        condition: service_started
+      tempo:
+        condition: service_started
+      opa:
+        condition: service_started
+    extra_hosts:
+      - "keycloak.localtest.me:host-gateway"
+    networks:
+      - workshop
+
+  inspector:
+    # image: ghcr.io/modelcontextprotocol/inspector:latest
+    build:
+      context: ./inspector
+    container_name: mcp-inspector
+    ports:
+      - "6274:6274"
+      - "6275:6275"
+      - "6278:6278"
+    environment:
+      DANGEROUSLY_BIND_ALL_INTERFACES: "true"
+      DANGEROUSLY_OMIT_AUTH: "true"
+      MCP_INSPECTOR_SECRET_STORE: file
+      NODE_EXTRA_CA_CERTS: /certs/ca.crt
+      OTEL_SERVICE_NAME: mcp-inspector
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    volumes:
+      - ./inspector/config:/home/node/.mcp-inspector
+      - ./certs/ca.crt:/certs/ca.crt:ro
+    extra_hosts:
+      - "keycloak.localtest.me:host-gateway"
+    depends_on:
+      - otel-collector
+    networks:
+      - workshop
+
+  opa:
+    image: openpolicyagent/opa:1.20.1-envoy
+    container_name: opa
+    command:
+      - run
+      - --server
+      - --config-file=/config/config.yaml
+      - /policy
+    ports:
+      - "8181:8181"
+      - "9191:9191"
+    volumes:
+      - ./opa/config/config.yaml:/config/config.yaml:ro
+      - ./opa/config/policy.rego:/policy/policy.rego:ro
+    networks:
+      - workshop
+
+  tempo:
+    image: grafana/tempo:3.0.3
+    container_name: tempo
+    command:
+      - -config.file=/etc/tempo.yaml
+    volumes:
+      - ./tempo/tempo.yaml:/etc/tempo.yaml:ro
+      - ./tempo/data:/var/tempo
+    ports:
+      - "3200:3200"
+    networks:
+      - workshop
+
+  grafana:
+    image: grafana/grafana:13.0.8
+    container_name: grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/data:/var/lib/grafana
+    networks:
+      - workshop
+
+  otel-collector:
+    image: otel/opentelemetry-collector:0.160.0
+    container_name: otel-collector
+    command:
+      - --config=/etc/otelcol/config.yaml
+    volumes:
+      - ./otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    networks:
+      - workshop
+
+networks:
+  workshop:
+    driver: bridge

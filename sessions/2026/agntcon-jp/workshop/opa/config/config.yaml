@@ -1,0 +1,7 @@
+plugins:
+  envoy_ext_authz_grpc:
+    addr: :9191
+    path: authz/main
+
+decision_logs:
+  console: true

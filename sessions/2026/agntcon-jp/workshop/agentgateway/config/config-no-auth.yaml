@@ -1,0 +1,30 @@
+frontendPolicies:
+  tracing:
+    host: otel-collector:4317
+    randomSampling: true
+
+gateways:
+  default:
+    port: 8080
+
+mcp:
+  gateways:
+    - default
+
+  statefulMode: stateful
+
+  targets:
+    - name: workshop
+      mcp:
+        host: mcp-server
+        port: 3000
+        path: /mcp
+
+  policies:
+    cors:
+      allowOrigins:
+        - "*"
+
+ui:
+  gateways:
+    - default

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "mcp-server": {
+      "type": "streamable-http",
+      "url": "http://agentgateway:8080/mcp"
+    }
+  }
+}

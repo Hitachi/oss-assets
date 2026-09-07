@@ -1,0 +1,64 @@
+frontendPolicies:
+  tracing:
+    host: otel-collector:4317
+    randomSampling: true
+
+gateways:
+  default:
+    port: 8080
+
+mcp:
+  gateways:
+    - default
+
+  statefulMode: stateful
+
+  targets:
+    - name: workshop
+      mcp:
+        host: mcp-server
+        port: 3000
+        path: /mcp
+
+  policies:
+    cors:
+      allowOrigins:
+        - "*"
+
+    extAuthz:
+      host: opa:9191
+
+      includeRequestBody:
+        maxRequestBytes: 8192
+        allowPartialMessage: true
+
+      protocol:
+        grpc:
+          metadata:
+            dev.agentgateway.jwt: '{"claims": jwt}'
+
+    mcpAuthentication:
+      mode: optional
+
+      issuer: https://keycloak.localtest.me:8443/realms/workshop
+
+      audiences:
+      - workshop
+
+      provider:
+        keycloak: {}
+
+      resourceMetadata:
+        scopesSupported:
+          - read
+          # - admin
+
+        authorizationServers:
+          - https://keycloak.localtest.me:8443/realms/workshop
+
+        bearerMethodsSupported:
+          - header
+
+ui:
+  gateways:
+    - default
