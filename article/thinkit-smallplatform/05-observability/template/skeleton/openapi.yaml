@@ -1,0 +1,72 @@
+openapi: 3.0.3
+info:
+  title: Template App API
+  description: A simple template application API
+  version: 1.0.0
+  contact:
+    name: API Support
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+servers:
+  - url: http://localhost:8080
+    description: Development server
+  - url: http://${{values.domain}}
+    description: Production server
+tags:
+  - name: Health
+    description: Health check operations
+  - name: Greeting
+    description: Greeting operations
+paths:
+  /health:
+    get:
+      summary: Health check endpoint
+      description: Returns the health status of the application
+      operationId: getHealth
+      tags:
+        - Health
+      responses:
+        "204":
+          description: Service is healthy
+        "503":
+          description: Service is unavailable
+  /hello:
+    get:
+      summary: Hello world endpoint
+      description: Returns a simple hello message
+      operationId: getHello
+      tags:
+        - Greeting
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HelloResponse'
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+components:
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message
+      required:
+        - error
+    
+    HelloResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: hello
+      required:
+        - message

@@ -1,0 +1,44 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: ${{values.k8sResource.name}}
+
+resources:
+- ../../base
+- hpa.yaml
+- network-policy.yaml
+- pdb.yaml
+- authpolicy.yaml
+
+patches:
+- patch: |-
+    - op: add
+      path: /spec/template/spec/imagePullSecrets
+      value:
+        - name: regcred
+  target:
+    kind: Deployment
+    name: ${{values.k8sResource.name}}
+- patch: |-
+    - op: replace
+      path: /data/LOG_LEVEL
+      value: "warn"
+  target:
+    kind: ConfigMap
+    name: ${{values.k8sResource.name}}-config
+- patch: |-
+    - op: replace
+      path: /spec/hostnames/0
+      value: "${{values.domain}}"
+  target:
+    kind: HTTPRoute
+    name: ${{values.k8sResource.name}}
+
+images:
+- name: app-image
+  newName: ${{values.image.registry + "/" + values.image.namespace + "/" + values.image.repoName}}
+  newTag: latest
+labels:
+- includeSelectors: true
+  pairs:
+    environment: production

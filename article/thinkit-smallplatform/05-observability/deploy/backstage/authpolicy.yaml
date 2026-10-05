@@ -1,0 +1,15 @@
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: backstage-authpolicy-allow-all
+  namespace: backstage
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: backstage-route
+  defaults:
+    rules:
+      authentication:
+        "anonymous":
+          anonymous: {}

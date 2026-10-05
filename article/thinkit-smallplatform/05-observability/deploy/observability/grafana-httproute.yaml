@@ -1,0 +1,23 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: grafana-route
+  namespace: observability
+spec:
+  hostnames:
+    - "grafana.10.50.1.5.nip.io"
+  parentRefs:
+    - name: shared-gateway
+      namespace: shared-gateway
+      sectionName: grafana
+  rules:
+    - name: root
+      matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: grafana
+          port: 80
+          kind: Service
+          weight: 1

@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backstage
+  namespace: backstage
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backstage
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: backstage
+    spec:
+      containers:
+        - name: backstage
+          image: ghcr.io/kz-masa/platform/backstage:v1.0.2 
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 7007
+          envFrom:
+            - secretRef:
+                name: backstage-secret
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "1Gi"
+            limits:
+              memory: "2Gi"
+      imagePullSecrets:
+        - name: regcred
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backstage
+  namespace: backstage
+spec:
+  selector:
+    app: backstage
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 7007
+  type: ClusterIP

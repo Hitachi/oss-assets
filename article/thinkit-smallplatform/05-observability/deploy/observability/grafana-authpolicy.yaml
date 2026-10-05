@@ -1,0 +1,29 @@
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: grafana-authpolicy
+  namespace: observability
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: grafana-route
+  defaults:
+    strategy: atomic
+    rules:
+      authorization:
+        allow-all:
+          opa:
+            rego: |
+              allow = true
+      response:
+        unauthorized:
+          headers:
+            "content-type":
+              value: application/json
+          body:
+            value: |
+              {
+                "error": "Forbidden",
+                "message": "403 Forbidden: policy check failed."
+              }

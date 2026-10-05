@@ -1,0 +1,32 @@
+# observability/grafana-values.yaml
+datasources:
+  datasources.yaml:
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        url: http://prometheus-server.observability.svc
+        access: proxy
+      - name: Loki
+        type: loki
+        url: http://loki-gateway.observability.svc
+        access: proxy
+  
+envFromSecret: grafana-secret
+
+grafana.ini:
+  server:
+    root_url: http://grafana.10.50.1.5.nip.io
+  auth.generic_oauth:
+    enabled: true
+    name: Keycloak
+    allow_sign_up: true
+    client_id: grafana
+    scopes: openid email profile
+    email_attribute_path: email
+    login_attribute_path: preferred_username
+    name_attribute_path: name
+    auth_url: http://keycloak.10.50.1.5.nip.io/realms/platform/protocol/openid-connect/auth
+    token_url: http://keycloak.10.50.1.5.nip.io/realms/platform/protocol/openid-connect/token
+    api_url: http://keycloak.10.50.1.5.nip.io/realms/platform/protocol/openid-connect/userinfo
+    role_attribute_path: contains(groups[*], '/GrafanaAdmin') && 'Admin' || 'Viewer'
