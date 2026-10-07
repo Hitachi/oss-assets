@@ -1,0 +1,56 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+LICENSE
+
+# Go build outputs
+main
+*.exe
+
+# Docker files
+Dockerfile*
+.dockerignore
+docker-compose*
+
+# IDE/Editor files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+
+# Logs
+logs
+*.log
+
+# Testing
+coverage
+.nyc_output
+
+# Environment
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# CI/CD
+.github
+.gitlab-ci.yml
+.travis.yml
+
+# Go specific
+vendor/
+*.test
+*.prof
